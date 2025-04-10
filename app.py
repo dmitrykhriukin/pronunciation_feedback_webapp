@@ -136,10 +136,11 @@ class AudioProcessor(AudioProcessorBase):
         self.frames.append(frame)
         return frame
 
+from streamlit_webrtc import WebRtcMode
+
 ctx = webrtc_streamer(
     key='mic_stream_',
-    import streamlit_webrtc
-mode=streamlit_webrtc.WebRtcMode.SENDRECV,
+    mode=WebRtcMode.SENDRECV,
     audio_receiver_size=256,
     media_stream_constraints={"audio": True, "video": False},
     audio_processor_factory=AudioProcessor,
