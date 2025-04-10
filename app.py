@@ -18,10 +18,8 @@ import shutil
 import streamlit as st
 from io import BytesIO
 import base64
-
-# Убираем импорт streamlit_webrtc и av, чтобы избежать ошибок на хостинге
-# from streamlit_webrtc import webrtc_streamer, AudioProcessorBase, ClientSettings
-# import av
+from streamlit_webrtc import webrtc_streamer, AudioProcessorBase, ClientSettings
+import av
 
 # Загрузка модели и процессора
 processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
@@ -119,6 +117,42 @@ if uploaded_file is not None:
     audio_path = f"temp_{uploaded_file.name}"
     with open(audio_path, "wb") as f:
         f.write(uploaded_file.read())
+
+    predicted = transcribe(audio_path)
+    result = compare_with_target(predicted, target_word)
+    report = generate_report(result)
+
+    st.audio(audio_path, format="audio/wav")
+    st.write(report)
+    st.pyplot(visualize_audio(audio_path))
+    st.markdown(get_download_link(report), unsafe_allow_html=True)
+
+# Включение записи с микрофона (streamlit-webrtc)
+class AudioProcessor(AudioProcessorBase):
+    def __init__(self):
+        self.frames = []
+
+    def recv(self, frame: av.AudioFrame) -> av.AudioFrame:
+        self.frames.append(frame)
+        return frame
+
+ctx = webrtc_streamer(
+    key="mic",
+    mode="SENDRECV",
+    audio_receiver_size=256,
+    client_settings=ClientSettings(
+        media_stream_constraints={"audio": True, "video": False},
+        rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
+    ),
+    audio_processor_factory=AudioProcessor,
+    async_processing=True,
+)
+
+if ctx and ctx.state.playing and ctx.audio_processor and len(ctx.audio_processor.frames) > 0:
+    frames = ctx.audio_processor.frames
+    samples = np.concatenate([f.to_ndarray()[0] for f in frames]).astype(np.float32)
+    audio_path = "mic_recording.wav"
+    torchaudio.save(audio_path, torch.tensor([samples]), 16000)
 
     predicted = transcribe(audio_path)
     result = compare_with_target(predicted, target_word)
