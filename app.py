@@ -48,9 +48,19 @@ def extract_common_voice(target_words, source_dir, out_dir, max_per_word=10):
                     break
     print("✅ Извлечение завершено. Файлы сохранены в:", out_dir)
 
-# Функция распознавания речи из аудиофайла
-def transcribe(audio_path):
-    speech_array, sampling_rate = torchaudio.load(audio_path)
+# Функция распознавания речи из аудиофайла или тензора
+def transcribe(audio_path=None, waveform=None, sampling_rate=None):
+    if audio_path:
+        speech_array, sampling_rate = torchaudio.load(audio_path)
+    elif waveform is not None and sampling_rate is not None:
+        speech_array = waveform
+    else:
+        raise ValueError("Either audio_path or waveform and sampling_rate must be provided")
+
+    # Убедимся, что у нас 1 канал (моно)
+    if speech_array.ndim > 1 and speech_array.shape[0] > 1:
+        speech_array = torch.mean(speech_array, dim=0, keepdim=True)
+
     resampler = T.Resample(orig_freq=sampling_rate, new_freq=16000)
     speech = resampler(speech_array).squeeze()
     inputs = processor(speech, sampling_rate=16000, return_tensors="pt", padding=True)
@@ -76,20 +86,28 @@ def compare_with_target(predicted, target):
     return result
 
 # Визуализация waveform и спектрограммы
+def visualize_audio(audio_path=None, y=None, sr=None):
+    if audio_path:
+        y, sr = librosa.load(audio_path, sr=16000) # Загружаем и ресемплируем до 16кГц
+    elif y is None or sr is None:
+         raise ValueError("Either audio_path or y and sr must be provided")
+    elif sr != 16000:
+        # Если переданы данные, но не с той частотой дискретизации, ресемплируем
+        y = librosa.resample(y, orig_sr=sr, target_sr=16000)
+        sr = 16000
 
-def visualize_audio(audio_path):
-    y, sr = librosa.load(audio_path, sr=16000)
     fig, axs = plt.subplots(2, 1, figsize=(10, 4))
     librosa.display.waveshow(y, sr=sr, ax=axs[0])
     axs[0].set_title("Waveform")
-    D = librosa.amplitude_to_db(abs(librosa.stft(y)), ref=np.max)
+    # Используем librosa.stft непосредственно
+    D = librosa.amplitude_to_db(np.abs(librosa.stft(y)), ref=np.max)
     img = librosa.display.specshow(D, sr=sr, x_axis='time', y_axis='hz', ax=axs[1])
     axs[1].set_title("Spectrogram")
-    fig.colorbar(img, ax=axs)
+    fig.colorbar(img, ax=axs[1]) # Убедимся, что colorbar привязан к правильной оси
+    plt.tight_layout() # Добавим для лучшего расположения
     return fig
 
 # Генерация отчета об ошибках
-
 def generate_report(result):
     report_lines = []
     report_lines.append(f"Ожидалось слово: {result['expected']}")
@@ -101,7 +119,6 @@ def generate_report(result):
     return "\n".join(report_lines)
 
 # Скачать отчёт как .txt файл
-
 def get_download_link(text, filename="feedback.txt"):
     b64 = base64.b64encode(text.encode()).decode()
     href = f'<a href="data:file/txt;base64,{b64}" download="{filename}">📄 Скачать отчёт</a>'
@@ -114,17 +131,21 @@ uploaded_file = st.file_uploader("Загрузите .wav файл:", type=["wav
 
 # Использование загруженного файла
 if uploaded_file is not None:
-    audio_path = f"temp_upload.wav"
-    with open(audio_path, "wb") as f:
-        f.write(uploaded_file.read())
+    # Читаем байты файла
+    audio_bytes = uploaded_file.getvalue()
+    # Загружаем аудио тензор из байтов
+    waveform, sr = torchaudio.load(BytesIO(audio_bytes))
 
-    predicted = transcribe(audio_path)
+    # Передаем тензор и частоту дискретизации в transcribe
+    predicted = transcribe(waveform=waveform, sampling_rate=sr)
     result = compare_with_target(predicted, target_word)
     report = generate_report(result)
 
-    st.audio(audio_path, format="audio/wav")
+    # Отображаем аудио из исходных байтов
+    st.audio(audio_bytes, format="audio/wav")
     st.write(report)
-    st.pyplot(visualize_audio(audio_path))
+    # Визуализация из загруженных данных (конвертируем тензор в numpy)
+    st.pyplot(visualize_audio(y=waveform.numpy().squeeze(), sr=sr))
     st.markdown(get_download_link(report), unsafe_allow_html=True)
 
 # Включение записи с микрофона (streamlit-webrtc)
@@ -147,17 +168,68 @@ ctx = webrtc_streamer(
     async_processing=True,
 )
 
-if ctx and ctx.state.playing and ctx.audio_processor and len(ctx.audio_processor.frames) > 0:
-    frames = ctx.audio_processor.frames
-    samples = np.concatenate([f.to_ndarray()[0] for f in frames]).astype(np.float32)
-    audio_path = "mic_recording.wav"
-    torchaudio.save(audio_path, torch.tensor([samples]), 16000)
+# Логика обработки после остановки записи
+if ctx.audio_processor:
+    if not ctx.state.playing and len(ctx.audio_processor.frames) > 0:
+        st.info("Обработка записи...")
+        frames = ctx.audio_processor.frames
+        # Объединяем фреймы в один numpy массив
+        samples = np.concatenate([f.to_ndarray()[0] for f in frames]).astype(np.float32)
+        # Убедимся, что массив одномерный (моно)
+        if samples.ndim > 1:
+            samples = np.mean(samples, axis=1) # Или samples = samples[:, 0] если знаем, что звук в первом канале
 
-    predicted = transcribe(audio_path)
-    result = compare_with_target(predicted, target_word)
-    report = generate_report(result)
+        # Конвертируем numpy в torch тензор для транскрипции
+        # Добавляем измерение для батча/канала, если нужно torchaudio
+        waveform = torch.tensor(samples).unsqueeze(0)
+        sr = 16000 # Частота дискретизации WebRTC обычно 16000 или 48000, но Wav2Vec требует 16000
 
-    st.audio(audio_path, format="audio/wav")
-    st.write(report)
-    st.pyplot(visualize_audio(audio_path))
-    st.markdown(get_download_link(report), unsafe_allow_html=True)
+        # Транскрибируем из тензора
+        predicted = transcribe(waveform=waveform, sampling_rate=sr)
+        result = compare_with_target(predicted, target_word)
+        report = generate_report(result)
+
+        # Сохраняем аудио в байтовый буфер для st.audio
+        buffer = BytesIO()
+        torchaudio.save(buffer, waveform, sr, format="wav")
+        buffer.seek(0)
+
+        # Отображаем результаты
+        st.audio(buffer, format="audio/wav")
+        st.write(report)
+        # Визуализируем из numpy массива
+        st.pyplot(visualize_audio(y=samples, sr=sr))
+        st.markdown(get_download_link(report), unsafe_allow_html=True)
+
+        # Очищаем буфер фреймов для следующей записи
+        ctx.audio_processor.frames = []
+        st.success("Обработка завершена!")
+
+elif ctx.state.playing:
+    # Можно добавить индикатор записи, если нужно
+    st.write("Идет запись... Нажмите 'Stop' для завершения.")
+
+# Удаление старого блока обработки во время записи
+# if ctx and ctx.state.playing and ctx.audio_processor and len(ctx.audio_processor.frames) > 0:
+#     frames = ctx.audio_processor.frames
+#     samples = np.concatenate([f.to_ndarray()[0] for f in frames]).astype(np.float32)
+#     audio_path = "mic_recording.wav"
+#     # Нужно убедиться, что формат и частота дискретизации соответствуют ожиданиям модели
+#     # Wav2Vec ожидает 16000 Гц, моно
+#     # av фреймы могут иметь другую частоту, проверим первый фрейм
+#     sample_rate_mic = frames[0].sample_rate
+#     waveform_mic = torch.tensor([samples])
+#     if sample_rate_mic != 16000:
+#         resampler_mic = T.Resample(orig_freq=sample_rate_mic, new_freq=16000)
+#         waveform_mic = resampler_mic(waveform_mic)
+#     # Сохраняем ресемплированное аудио
+#     torchaudio.save(audio_path, waveform_mic, 16000)
+#
+#     predicted = transcribe(audio_path=audio_path)
+#     result = compare_with_target(predicted, target_word)
+#     report = generate_report(result)
+#
+#     st.audio(audio_path, format="audio/wav")
+#     st.write(report)
+#     st.pyplot(visualize_audio(audio_path=audio_path))
+#     st.markdown(get_download_link(report), unsafe_allow_html=True)
