@@ -21,9 +21,20 @@ import base64
 from streamlit_webrtc import webrtc_streamer, AudioProcessorBase
 import av
 
-# Загрузка модели и процессора
-processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
-model = Wav2Vec2ForCTC.from_pretrained("facebook/wav2vec2-base-960h")
+# --- Загрузка модели и процессора ---
+# Укажите путь к локально скачанным файлам модели
+# Убедитесь, что эта директория существует и содержит все необходимые файлы
+local_model_path = "./wav2vec2-local"
+
+# Загрузка модели и процессора из локального пути
+try:
+    processor = Wav2Vec2Processor.from_pretrained(local_model_path)
+    model = Wav2Vec2ForCTC.from_pretrained(local_model_path)
+except OSError as e:
+    st.error(f"Ошибка загрузки модели из '{local_model_path}': {e}\n"
+             f"Убедитесь, что путь указан верно и файлы модели скачаны.")
+    st.stop() # Останавливаем выполнение скрипта, если модель не загружена
+
 model.eval()
 
 # Загрузка и подготовка Common Voice (английский)
