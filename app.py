@@ -18,7 +18,7 @@ import shutil
 import streamlit as st
 from io import BytesIO
 import base64
-from streamlit_webrtc import webrtc_streamer, AudioProcessorBase, ClientSettings
+from streamlit_webrtc import webrtc_streamer, AudioProcessorBase
 import av
 
 # Загрузка модели и процессора
@@ -140,10 +140,7 @@ ctx = webrtc_streamer(
     key="mic",
     mode="SENDRECV",
     audio_receiver_size=256,
-    client_settings=ClientSettings(
-        media_stream_constraints={"audio": True, "video": False},
-        rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
-    ),
+    media_stream_constraints={"audio": True, "video": False},
     audio_processor_factory=AudioProcessor,
     async_processing=True,
 )
