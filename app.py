@@ -137,7 +137,7 @@ class AudioProcessor(AudioProcessorBase):
         return frame
 
 ctx = webrtc_streamer(
-    key='mic_stream',
+    key='mic_stream_',
     mode="SENDRECV",
     audio_receiver_size=256,
     media_stream_constraints={"audio": True, "video": False},
