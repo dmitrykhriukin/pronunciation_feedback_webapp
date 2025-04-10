@@ -1,7 +1,7 @@
 streamlit
 streamlit-webrtc
 transformers
-torch
+torch==1.13.1
 torchaudio
 librosa
 matplotlib
