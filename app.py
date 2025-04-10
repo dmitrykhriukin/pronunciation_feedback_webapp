@@ -22,18 +22,17 @@ from streamlit_webrtc import webrtc_streamer, AudioProcessorBase
 import av
 
 # --- Загрузка модели и процессора ---
-# Укажите путь к локально скачанным файлам модели
-# Убедитесь, что эта директория существует и содержит все необходимые файлы
-local_model_path = "./wav2vec2-local"
-
-# Загрузка модели и процессора из локального пути
+# Попытка загрузить модель и процессор напрямую из Hugging Face Hub
 try:
-    processor = Wav2Vec2Processor.from_pretrained(local_model_path)
-    model = Wav2Vec2ForCTC.from_pretrained(local_model_path)
+    processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
+    model = Wav2Vec2ForCTC.from_pretrained("facebook/wav2vec2-base-960h")
 except OSError as e:
-    st.error(f"Ошибка загрузки модели из '{local_model_path}': {e}\n"
-             f"Убедитесь, что путь указан верно и файлы модели скачаны.")
-    st.stop() # Останавливаем выполнение скрипта, если модель не загружена
+    st.error(f"Ошибка при попытке загрузить модель из Hugging Face Hub: {e}\n"
+             f"Проверьте ваше интернет-соединение и настройки сети (Firewall/Proxy). "
+             f"Или рассмотрите возможность скачивания модели для офлайн-использования.")
+    # Ссылка на документацию по офлайн-режиму
+    st.info("Подробнее об офлайн-режиме: https://huggingface.co/docs/transformers/installation#offline-mode")
+    st.stop()
 
 model.eval()
 
