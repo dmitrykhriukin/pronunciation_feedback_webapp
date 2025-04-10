@@ -1,10 +1,11 @@
-streamlit
-streamlit-webrtc
-transformers
-torch==1.13.1
-torchaudio
-librosa
-matplotlib
-pronouncing
-av
-soundfile
+    torch==1.13.1
+    torchaudio==0.13.1
+    # Keep the rest of your libraries
+    transformers
+    streamlit
+    numpy
+    librosa
+    soundfile
+    pronouncing
+    streamlit-webrtc
+    av
