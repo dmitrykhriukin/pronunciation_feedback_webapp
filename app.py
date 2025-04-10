@@ -114,7 +114,7 @@ uploaded_file = st.file_uploader("Загрузите .wav файл:", type=["wav
 
 # Использование загруженного файла
 if uploaded_file is not None:
-    audio_path = f"temp_{uploaded_file.name}"
+    audio_path = f"temp_upload.wav"
     with open(audio_path, "wb") as f:
         f.write(uploaded_file.read())
 
